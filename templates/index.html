@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>ward61</title>
+    <link rel="stylesheet" href="static/styles.css">
+    <script src="https://unpkg.com/d3@5.9.2/dist/d3.min.js"></script>
+  </head>
+  <body>
+  <button>back</button>
+    <div class="row"> <div class="col-md-12" id="mymap"></div> </div>
+    <script>
+<!--    const svg = select('svg');-->
+let rd = {{ rd|safe }}
+let cd = {{ cd|safe }}
+let bd = {{ bd|safe }}
+let stack = ['ward 61']
+let s_top=0;
+let region_json;
+var scaleCenter;
+let cluster_json;
+<!--console.log(rd[0].totalwaste);-->
+const svg = d3 .select("#mymap") .append('svg') .attr('width', 1300) .attr('height', 800);
+const margin = { left: 200, top: 300, right: 40, bottom: 20 };
+const innerWidth = 1300 - margin.left - margin.right;
+const innerHeight = 800 - margin.top - margin.bottom;
+const transitionDuration = 500;
+let width = document.body.clientWidth;
+let height = document.body.clientHeight;
+console.log(width,height)
+let active = d3.select(null);
+//svg.attr('width', width).attr('height', height)
+let g = svg.append('g');
+//const mercator = geoMercator().scale(20000).translate([width/2, height/2]).center([73,19.7]);
+var mercator = d3 .geoMercator() .scale(1);
+const pathGenerator = d3.geoPath().projection(mercator);
+//Zoom
+  let zzoom = d3.zoom().scaleExtent([1, 2]).on("zoom", zoomed);
+
+  function zoomed() {
+  g.style("stroke-width", 1 / d3.event.transform.k + "px");
+  g.attr("transform", d3.event.transform); // updated for d3 v4
+}
+
+//giving interval
+
+//makemap
+var makemap = (geojson) => {
+    let c1Value  = rd => rd.totalwaste;
+    let min_val = 0
+    let max_val = 0
+    if(s_top==0){
+       min_val = d3.min(rd,c1Value);
+       max_val = d3.max(rd,c1Value);
+    }
+    if(s_top==1){
+       min_val = d3.min(cd,c1Value);
+       max_val = d3.max(cd,c1Value);
+    }
+    if(s_top==2){
+       min_val = d3.min(bd,c1Value);
+       max_val = d3.max(bd,c1Value);
+    }
+  const comp = (max_val - min_val)/3;
+
+  console.log(comp);
+
+var myColor = v =>{
+  if(v>=min_val && v < min_val + comp)
+    return 'red';
+  else if(v >= min_val+comp && v<max_val-comp)
+    return 'yellow';
+  else if(v >= max_val-comp)
+    return 'green';
+}
+
+    console.log(geojson)
+
+  	let path = g.selectAll('path').data(geojson)
+								.enter().append('path')
+  							.attr('d',pathGenerator)
+    						.attr('class','boundary')
+    						.style('fill',function(d) {
+                                                        var value = d.properties.totalwaste;
+                                                        return myColor(value);
+		                                                                        })
+  //zoomToBoundingBox
+  let zoomToBoundingBox = d => {
+  let bounds = pathGenerator.bounds(d),
+      dx = bounds[1][0] - bounds[0][0],
+      dy = bounds[1][1] - bounds[0][1],
+      x = (bounds[0][0] + bounds[1][0]) / 2,
+      y = (bounds[0][1] + bounds[1][1]) / 2,
+      scale = Math.max(1, Math.min(10, .81/ Math.max(dx / innerWidth, dy / innerHeight))),
+      translate = [innerWidth / 2 - scale * x, innerHeight / 2 - scale * y];
+    svg.transition().duration(transitionDuration).call(
+  	zzoom.transform, d3.zoomIdentity.translate(translate[0],translate[1]).scale(scale)
+    );
+
+  }
+  //clicked
+	var clicked = d =>{
+	if (s_top < 2){
+	  s_top=s_top+1;
+
+
+
+d3.json('static/cluster.json').then(projectGeoJSON =>{
+console.log(s_top,'stack top')
+if (s_top == 1){
+  projectGeoJSON=js(projectGeoJSON,cd,'cluster');
+let projectgeojson = projectGeoJSON.features;
+  console.log(projectgeojson,'see cluster waste');
+  zoomToBoundingBox(d);
+  console.log(d,'d');
+	let selectedBlock = d.properties.region;
+	stack.push(d);
+  let selectedjson = selectMap(projectgeojson,selectedBlock);
+  cluster_json = selectedjson;
+  console.log(selectedjson,'slected')
+  g.selectAll("*").remove();
+  makemap(selectedjson)
+}
+
+else if (s_top == 2){
+    projectGeoJSON=js(projectGeoJSON,bd,'building');
+let projectgeojson = projectGeoJSON.features;
+  console.log(projectgeojson,'see cluster waste');
+  zoomToBoundingBox(d);
+	let selectedCluster = d.properties.building_cluster;
+
+  let selectedjson = selectMap(projectgeojson,selectedCluster);
+  stack.push(selectedjson);
+  console.log(selectedjson,'slected');
+  g.selectAll("*").remove();
+  makemap(selectedjson)
+}
+
+
+
+
+})
+
+	}
+	}
+
+  path.on('click',clicked)
+  d3.select('button').on('click',function(){
+    if (s_top > 0){
+      s_top = s_top-1;
+      st=stack.pop();
+
+      if (s_top == 1){
+         zoomToBoundingBox(stack[1]);
+         console.log(stack,'stack');
+         g.selectAll("*").remove();
+         makemap(cluster_json);
+      }
+      else if (s_top == 0){
+         console.log(region_json,'back to region');
+          g.selectAll("*").remove();
+<!--          scaleCenter = calculateScaleCenter(region_json.features);-->
+<!--         mercator.scale(scaleCenter.scale) .center(scaleCenter.center) .translate([innerWidth / 2, innerHeight / 2]);-->
+         zoomToBoundingBox(region_json.features);
+         makemap(region_json.features);
+      }
+
+    }
+  }) // back button on click ends
+
+} // make map ends
+
+//selectmap
+const selectMap = (geojson,location) => {
+  		let selection = [];
+  		if (s_top == 1){
+  		  geojson.forEach( sel =>{
+      	if (sel.properties.region == location){
+
+        	selection.push(sel);
+        	//console.log(selection,'selection');
+        }
+      });
+
+  		}
+  	  if (s_top == 2){
+  	    geojson.forEach( sel =>{
+      	if (sel.properties.building_cluster == location){
+
+        	selection.push(sel);
+        	//console.log(selection,'selection');
+        }
+      });
+
+  	  }
+
+  		return selection;
+}
+
+var js = (json,rd,attr) => {
+
+    if (attr == 'region'){
+
+    for (var i = 0; i < rd.length; i++) {
+    var region = rd[i].region;
+    var tw = rd[i].totalwaste;
+
+    for(var j = 0; j < json.features.length; j++){
+      var jsonreg = json.features[j].properties.region;
+
+      if (region === jsonreg){
+        json.features[j].properties.totalwaste = tw;
+
+        break;
+
+      }
+    }
+  }
+  }
+  else if (attr == 'cluster'){
+
+    for (var i = 0; i < rd.length; i++) {
+    var cluster = rd[i].building_cluster;
+    var tw = rd[i].totalwaste;
+
+    for(var j = 0; j < json.features.length; j++){
+      var jsonclus = json.features[j].properties.building_cluster;
+
+      if (cluster === jsonclus){
+        json.features[j].properties.totalwaste = tw;
+
+
+
+      }
+    }
+  }
+
+  }
+  else if (attr == 'building'){
+
+    for (var i = 0; i < rd.length; i++) {
+    var building = rd[i].name;
+    var tw = rd[i].totalwaste;
+
+    for(var j = 0; j < json.features.length; j++){
+      var jsonbuilding = json.features[j].properties.name;
+
+      if (building == jsonbuilding){
+        json.features[j].properties.totalwaste = tw;
+
+
+
+      }
+    }
+  }
+
+  }
+  return json;
+
+}
+d3.json('static/region.json').then(json =>{
+
+
+  //adding csv data to json properties
+  json=js(json,rd,'region');
+  console.log(json);
+  region_json = json;
+  scaleCenter = calculateScaleCenter(json);
+  mercator.scale(scaleCenter.scale) .center(scaleCenter.center) .translate([innerWidth / 2, innerHeight / 2]);
+  makemap(json.features)
+
+})
+
+const readGeoJSON = (filename) => {
+  let a;
+let json = d3.json(`${filename}`).then(json =>{
+  a=  json.features;
+})
+console.log(a);
+}
+
+let features = readGeoJSON('static/cluster.json');
+
+function calculateScaleCenter(features) {
+ var bbox_path = pathGenerator.bounds(features),
+ scale = 0.95 / Math.max( (bbox_path[1][0] - bbox_path[0][0]) / innerWidth, (bbox_path[1][1] - bbox_path[0][1]) / innerHeight ); var bbox_feature = d3.geoBounds(features), center = [ (bbox_feature[1][0] + bbox_feature[0][0]) / 2, ((bbox_feature[1][1] + bbox_feature[0][1]) / 2)]; return { 'scale': scale, 'center': center }; }
+</script>
+  </body>
+</html>
